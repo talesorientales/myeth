@@ -1,78 +1,97 @@
-//SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.9.0;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.18;
 
-// Useful for debugging. Remove when deploying to a live network.
-import "hardhat/console.sol";
+contract ContentMarketplace {
+    string public greeting = "Initial greeting!";
+    address public owner;
 
-// Use openzeppelin to inherit battle-tested implementations (ERC20, ERC721, etc)
-// import "@openzeppelin/contracts/access/Ownable.sol";
-
-/**
- * A smart contract that allows changing a state variable of the contract and tracking the changes
- * It also allows the owner to withdraw the Ether in the contract
- * @author BuidlGuidl
- */
-contract YourContract {
-    // State Variables
-    address public immutable owner;
-    string public greeting = "Building Unstoppable Apps!!!";
-    bool public premium = false;
-    uint256 public totalCounter = 0;
-    mapping(address => uint) public userGreetingCounter;
-
-    // Events: a way to emit log statements from smart contract that can be listened to by external parties
-    event GreetingChange(address indexed greetingSetter, string newGreeting, bool premium, uint256 value);
-
-    // Constructor: Called once on contract deployment
-    // Check packages/hardhat/deploy/00_deploy_your_contract.ts
-    constructor(address _owner) {
-        owner = _owner;
+    struct Content {
+        uint256 price; // Цена контента в wei
+        string uri; // Ссылка на контент
     }
 
-    // Modifier: used to define a set of rules that must be met before or after a function is executed
-    // Check the withdraw() function
-    modifier isOwner() {
-        // msg.sender: predefined variable that represents address of the account that called the current function
-        require(msg.sender == owner, "Not the Owner");
+    // Список контентов
+    Content[] public contents;
+
+    // Хранение информации о доступах к контентам
+    mapping(address => mapping(uint256 => bool)) public hasAccess;
+
+    // События
+    event ContentAdded(uint256 indexed contentId, uint256 price, string uri);
+    event ContentPurchased(address indexed buyer, uint256 indexed contentId);
+    event PriceUpdated(uint256 indexed contentId, uint256 newPrice);
+    event ContentUpdated(uint256 indexed contentId, string newUri);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not the owner");
         _;
     }
 
-    /**
-     * Function that allows anyone to change the state variable "greeting" of the contract and increase the counters
-     *
-     * @param _newGreeting (string memory) - new greeting to save on the contract
-     */
-    function setGreeting(string memory _newGreeting) public payable {
-        // Print data to the hardhat chain console. Remove when deploying to a live network.
-        console.log("Setting new greeting '%s' from %s", _newGreeting, msg.sender);
-
-        // Change state variables
-        greeting = _newGreeting;
-        totalCounter += 1;
-        userGreetingCounter[msg.sender] += 1;
-
-        // msg.value: built-in global variable that represents the amount of ether sent with the transaction
-        if (msg.value > 0) {
-            premium = true;
-        } else {
-            premium = false;
-        }
-
-        // emit: keyword used to trigger an event
-        emit GreetingChange(msg.sender, _newGreeting, msg.value > 0, msg.value);
+    constructor() {
+        owner = msg.sender;
     }
 
-    /**
-     * Function that allows the owner to withdraw all the Ether in the contract
-     * The function can only be called by the owner of the contract as defined by the isOwner modifier
-     */
-    function withdraw() public isOwner {
-        (bool success, ) = owner.call{ value: address(this).balance }("");
-        require(success, "Failed to send Ether");
+    // Добавить новый контент (только владелец)
+    function addContent(uint256 _price, string memory _uri) external onlyOwner {
+        contents.push(Content({price: _price, uri: _uri}));
+        emit ContentAdded(contents.length - 1, _price, _uri);
     }
 
-    /**
-     * Function that allows the contract to receive ETH
-     */
-    receive() external payable {}
+    // Обновить цену для контента (только владелец)
+    function updatePrice(uint256 _contentId, uint256 _newPrice) external onlyOwner {
+        require(_contentId < contents.length, "Invalid content ID");
+        contents[_contentId].price = _newPrice;
+        emit PriceUpdated(_contentId, _newPrice);
+    }
+
+    // Обновить ссылку на контент (только владелец)
+    function updateContentURI(uint256 _contentId, string memory _newUri) external onlyOwner {
+        require(_contentId < contents.length, "Invalid content ID");
+        contents[_contentId].uri = _newUri;
+        emit ContentUpdated(_contentId, _newUri);
+    }
+
+    // Покупка доступа к контенту
+    function buyContent(uint256 _contentId) external payable {
+        require(_contentId < contents.length, "Invalid content ID");
+        require(msg.value == contents[_contentId].price, "Incorrect payment amount");
+        require(!hasAccess[msg.sender][_contentId], "Access already granted");
+
+        hasAccess[msg.sender][_contentId] = true;
+        emit ContentPurchased(msg.sender, _contentId);
+    }
+
+    // Получить ссылку на купленный контент
+    function getContent(uint256 _contentId) external view returns (string memory) {
+        require(_contentId < contents.length, "Invalid content ID");
+        require(hasAccess[msg.sender][_contentId], "Access denied");
+        return contents[_contentId].uri;
+    }
+
+    // Проверка доступа к контенту
+    function checkAccess(uint256 _contentId) external view returns (bool) {
+        require(_contentId < contents.length, "Invalid content ID");
+        return hasAccess[msg.sender][_contentId];
+    }
+
+    // Получить цену к контенту
+    function getPrice(uint256 _contentId) external view returns (uint256) {
+        require(_contentId < contents.length, "Invalid content ID");
+        return contents[_contentId].price;
+    }
+
+    // Вывод всех средств владельцем
+    function withdraw() external onlyOwner {
+        payable(owner).transfer(address(this).balance);
+    }
+
+    // Проверка состояния контракта
+    function contractBalance() external view onlyOwner returns (uint256) {
+        return address(this).balance;
+    }
+
+    // Получить количество доступных контентов
+    function getContentCount() external view returns (uint256) {
+        return contents.length;
+    }
 }
